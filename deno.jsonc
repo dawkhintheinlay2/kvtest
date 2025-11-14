@@ -1,6 +1,10 @@
 {
   "entry": "main.ts",
   "permissions": {
-    "kv": true
+    "kv": true,
+    "net": true,
+    "env": [
+      "ADMIN_TOKEN"
+    ]
   }
 }
