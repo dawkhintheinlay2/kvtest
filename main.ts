@@ -97,7 +97,15 @@ function getLoginPageHTML(): string {
 function getAdminPageHTML(links: string[], token: string): string {
     const totalLinks = links.length;
     let linkListHTML = links.map(link => `
-    <li class="link-item"><span class="link-text">${link}</span><form method="POST" action="/delete" class="delete-form"><input type="hidden" name="token" value="${token}"><input type="hidden" name="url" value="${link}"><button type="submit" class="delete-btn" title="Delete">&times;</button></form></li>`).join('');
+    <li class="link-item">
+      <span class="link-text" title="${link}">${link}</span>
+      <form method="POST" action="/delete" class="delete-form">
+        <input type="hidden" name="token" value="${token}">
+        <input type="hidden" name="url" value="${link}">
+        <button type="submit" class="delete-btn" title="Delete">&times;</button>
+      </form>
+    </li>`).join('');
+
     return `
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Streamtape Link Manager</title>
     <style>
@@ -110,8 +118,9 @@ function getAdminPageHTML(links: string[], token: string): string {
         input[type="text"]{flex-grow:1;padding:0.8rem;background:var(--bg);border:1px solid var(--primary);color:var(--text);border-radius:5px;font-size:1rem;}
         button{padding:0.8rem 1.5rem;background:var(--accent);color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;}
         .run-now-btn{background: var(--info);}
-        ul{list-style:none;padding:0;}.link-item{display:flex;justify-content:space-between;align-items:center;background:var(--primary);padding:0.8rem;border-radius:5px;margin-bottom:0.5rem;}
-        .link-text{word-break:break-all;margin-right:1rem;}
+        ul{list-style:none;padding:0;}
+        .link-item{display:flex;justify-content:space-between;align-items:center;background:var(--primary);padding:0.8rem 1.2rem;border-radius:5px;margin-bottom:0.8rem;}
+        .link-text {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-grow:1;margin-right:1rem;}
         .delete-form{margin:0;}.delete-btn{background:none;color:#ffc1cc;font-size:1.5rem;padding:0 0.5rem;line-height:1;}
         .notification{padding:1rem;border-radius:5px;margin-bottom:1.5rem;text-align:center;display:none;font-weight:bold;}
         .notification.info{background:var(--info);color:white;}
@@ -127,7 +136,6 @@ function getAdminPageHTML(links: string[], token: string): string {
         const notif = document.getElementById('notification');
         const urlParams = new URLSearchParams(window.location.search);
         let pollingInterval;
-
         document.getElementById('run-now-btn').addEventListener('click', (e) => {
             const totalLinks = ${totalLinks};
             const confirmationMessage = \`Are you sure you want to run the keeper job for \${totalLinks} links? This might take a while if you have many links.\`;
@@ -135,17 +143,12 @@ function getAdminPageHTML(links: string[], token: string): string {
                 document.getElementById('run-now-form').submit();
             }
         });
-
         function checkJobStatus() {
             fetch('/job-status').then(res => res.json()).then(data => {
                 if (data.status === 'running') {
-                    notif.className = 'notification info';
-                    notif.textContent = 'Job is running in the background...';
-                    notif.style.display = 'block';
+                    notif.className = 'notification info'; notif.textContent = 'Job is running in the background...'; notif.style.display = 'block';
                 } else if (data.status === 'finished') {
-                    notif.className = 'notification success';
-                    notif.textContent = 'Job finished successfully!';
-                    notif.style.display = 'block';
+                    notif.className = 'notification success'; notif.textContent = 'Job finished successfully!'; notif.style.display = 'block';
                     clearInterval(pollingInterval);
                     setTimeout(() => { notif.style.display = 'none'; }, 5000);
                     window.history.replaceState({}, document.title, window.location.pathname + "?token=${token}");
