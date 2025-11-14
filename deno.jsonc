@@ -1,0 +1,6 @@
+{
+  "entry": "main.ts",
+  "permissions": {
+    "kv": true
+  }
+}
