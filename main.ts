@@ -1,70 +1,68 @@
-// main.ts (Full Version with Admin Login Form)
-
+// main.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "fallback-admin-token";
 
-console.log("Streamtape Manager with Login Form is starting...");
+console.log("Streamtape Manager Server is starting...");
 
 async function handler(req: Request): Promise<Response> {
-    const url = new URL(req.url);
-    const { pathname, searchParams } = url;
-    const method = req.method;
+  const url = new URL(req.url);
+  const { pathname, searchParams } = url;
+  const method = req.method;
 
-    if (pathname === "/") {
-        return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
-    }
+  if (pathname === "/") {
+    return new Response(getLoginPageHTML(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
 
-    if (pathname === "/admin") {
-        if (searchParams.get("token") !== ADMIN_TOKEN) {
-            return new Response("Forbidden: Invalid Admin Token.", { status: 403 });
-        }
-        const links = [];
-        for await (const entry of kv.list<string>({ prefix: ["streamtape_urls"] })) {
-            links.push(entry.value);
-        }
-        return new Response(getAdminPageHTML(links, ADMIN_TOKEN), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  if (pathname === "/admin") {
+    if (searchParams.get("token") !== ADMIN_TOKEN) {
+      return new Response("Forbidden: Invalid Admin Token.", { status: 403 });
     }
+    const links = [];
+    for await (const entry of kv.list<string>({ prefix: ["streamtape_urls"] })) {
+      links.push(entry.value);
+    }
+    return new Response(getAdminPageHTML(links, ADMIN_TOKEN), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
 
-    if (pathname === "/add" && method === "POST") {
-        const formData = await req.formData();
-        if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
-        const newUrl = formData.get("url") as string;
-        if (newUrl && newUrl.includes("streamtape.com")) {
-            await kv.set(["streamtape_urls", newUrl], newUrl);
-        }
-        return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
+  if (pathname === "/add" && method === "POST") {
+    const formData = await req.formData();
+    if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
+    const newUrl = formData.get("url") as string;
+    if (newUrl && newUrl.includes("streamtape.com")) {
+      await kv.set(["streamtape_urls", newUrl], newUrl);
     }
+    return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
+  }
 
-    if (pathname === "/delete" && method === "POST") {
-        const formData = await req.formData();
-        if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
-        const urlToDelete = formData.get("url") as string;
-        if (urlToDelete) {
-            await kv.delete(["streamtape_urls", urlToDelete]);
-        }
-        return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
+  if (pathname === "/delete" && method === "POST") {
+    const formData = await req.formData();
+    if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
+    const urlToDelete = formData.get("url") as string;
+    if (urlToDelete) {
+      await kv.delete(["streamtape_urls", urlToDelete]);
     }
-    
-    return new Response("Not Found", { status: 404 });
+    return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
+  }
+  
+  return new Response("Not Found", { status: 404 });
 }
 
 async function keepFilesActive() {
-    // This cron job function remains the same.
-    console.log(`Keeper job started: ${new Date().toISOString()}`);
-    const urls = [];
-    for await (const entry of kv.list<string>({ prefix: ["streamtape_urls"] })) { urls.push(entry.value); }
-    if (urls.length === 0) { console.log("No URLs to process."); return; }
-    console.log(`Processing ${urls.length} URLs.`);
-    for (const url of urls) {
-        try {
-            const res = await fetch(url, { method: 'HEAD' });
-            console.log(`Pinged ${url} - Status: ${res.status}`);
-        } catch (e) { console.error(`Failed to ping ${url}: ${e.message}`); }
-        await new Promise(r => setTimeout(r, 1000));
-    }
-    console.log("Keeper job finished.");
+  console.log(`Keeper job started: ${new Date().toISOString()}`);
+  const urls = [];
+  for await (const entry of kv.list<string>({ prefix: ["streamtape_urls"] })) { urls.push(entry.value); }
+  if (urls.length === 0) { console.log("No URLs to process."); return; }
+  console.log(`Processing ${urls.length} URLs.`);
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      console.log(`Pinged ${url} - Status: ${res.status}`);
+    } catch (e) { console.error(`Failed to ping ${url}: ${e.message}`); }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  console.log("Keeper job finished.");
 }
 
 Deno.cron("weeklyStreamtapeKeeper", "0 3 * * 0", keepFilesActive);
@@ -72,7 +70,7 @@ Deno.cron("weeklyStreamtapeKeeper", "0 3 * * 0", keepFilesActive);
 serve(handler);
 
 function getLoginPageHTML(): string {
-    return `
+  return `
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Admin Login</title>
     <style>body{display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a2e;font-family:sans-serif;}.login-container{background:#162447;padding:2.5rem;border-radius:10px;text-align:center;box-shadow:0 10px 25px rgba(0,0,0,0.5);}h1{color:#e43f5a;margin-top:0;}input{width:100%;padding:0.8rem;margin-bottom:1rem;border-radius:5px;border:1px solid #1f4068;background:#1a1a2e;color:#e0e0e0;}button{width:100%;padding:0.8rem;border:none;border-radius:5px;background:#e43f5a;color:white;cursor:pointer;font-weight:bold;}</style>
     </head><body><div class="login-container"><h1>Admin Panel Login</h1><form id="login-form"><input type="password" id="token-input" placeholder="Enter Admin Token" required><button type="submit">Login</button></form></div>
@@ -80,13 +78,10 @@ function getLoginPageHTML(): string {
         document.getElementById('login-form').addEventListener('submit', (e) => {
             e.preventDefault();
             const token = document.getElementById('token-input').value;
-            if (token) {
-                window.location.href = window.location.origin + '/admin?token=' + encodeURIComponent(token);
-            }
+            if (token) { window.location.href = window.location.origin + '/admin?token=' + encodeURIComponent(token); }
         });
     <\/script></body></html>`;
 }
-
 function getAdminPageHTML(links: string[], token: string): string {
   let linkListHTML = links.map(link => `
     <li class="link-item"><span class="link-text">${link}</span><form method="POST" action="/delete" class="delete-form"><input type="hidden" name="token" value="${token}"><input type="hidden" name="url" value="${link}"><button type="submit" class="delete-btn" title="Delete">&times;</button></form></li>`).join('');
