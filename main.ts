@@ -1,11 +1,11 @@
-// main.ts (Final Refined Version with Bulk Add)
+// main.ts (Final Version with AJAX Notification)
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "fallback-admin-token";
 
-console.log("Streamtape Manager (Final Version) is starting...");
+console.log("Streamtape Manager (AJAX Version) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -27,7 +27,6 @@ async function handler(req: Request): Promise<Response> {
         return new Response(getAdminPageHTML(links, ADMIN_TOKEN), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
-    // Handles single link addition
     if (pathname === "/add" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
@@ -38,7 +37,6 @@ async function handler(req: Request): Promise<Response> {
         return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
     }
     
-    // Handles multiple links addition
     if (pathname === "/bulk-add" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
@@ -65,8 +63,8 @@ async function handler(req: Request): Promise<Response> {
     if (pathname === "/run-now" && method === "POST") {
          if ((await req.formData()).get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
          console.log("Manual trigger: Starting keeper job.");
-         keepFilesActive();
-         return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}&status=started`, 302);
+         keepFilesActive(); // This runs in the background, we don't wait for it.
+         return new Response("Job started successfully.", { status: 200 });
     }
   
     if (pathname === "/job-status") {
@@ -116,17 +114,17 @@ function getAdminPageHTML(links: string[], token: string): string {
     return `
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Streamtape Link Manager</title>
     <style>
-        :root { --bg: #1a1a2e; --primary: #1f4068; --secondary: #162447; --accent: #e43f5a; --text: #e0e0e0; --success: #28a745; --info: #17a2b8; }
+        :root{--bg:#1a1a2e;--primary:#1f4068;--secondary:#162447;--accent:#e43f5a;--text:#e0e0e0;--success:#28a745;--info:#17a2b8;}
         body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:2rem;display:flex;justify-content:center;}
         .container{width:100%;max-width:960px;background:var(--secondary);padding:2rem;border-radius:10px;}
         h1,h2{color:var(--accent);border-bottom:2px solid var(--accent);padding-bottom:0.5rem;}
         form{margin-bottom:1.5rem;}
         .form-group{display:flex;gap:1rem;}
-        input[type="text"], textarea {width:100%;padding:0.8rem;background:var(--bg);border:1px solid var(--primary);color:var(--text);border-radius:5px;font-size:1rem;font-family:inherit;}
-        textarea { resize: vertical; min-height: 120px; }
+        input[type="text"],textarea{width:100%;padding:0.8rem;background:var(--bg);border:1px solid var(--primary);color:var(--text);border-radius:5px;font-size:1rem;font-family:inherit;}
+        textarea{resize:vertical;min-height:120px;}
         button{padding:0.8rem 1.5rem;background:var(--accent);color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;transition:opacity 0.2s;}
         button:hover{opacity:0.9;}
-        .run-now-btn{background: var(--info);}
+        .run-now-btn{background:var(--info);}
         ul{list-style:none;padding:0;max-height:400px;overflow-y:auto;border:1px solid var(--primary);border-radius:5px;padding:0.5rem;}
         .link-item{display:flex;justify-content:space-between;align-items:center;background:var(--primary);padding:0.8rem 1.2rem;border-radius:5px;margin-bottom:0.8rem;}
         .link-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-grow:1;margin-right:1rem;}
@@ -140,33 +138,61 @@ function getAdminPageHTML(links: string[], token: string): string {
     <h1>Streamtape Link Manager</h1>
     <form method="POST" action="/add"><input type="hidden" name="token" value="${token}"><div class="form-group"><input type="text" name="url" placeholder="Enter a single Streamtape URL..." required><button type="submit">Add Link</button></div></form>
     <form method="POST" action="/bulk-add"><input type="hidden" name="token" value="${token}"><textarea name="urls" placeholder="... or enter multiple links, one per line."></textarea><button type="submit" style="margin-top:1rem;width:100%;">Add Multiple Links</button></form>
-    <form method="POST" action="/run-now" id="run-now-form" style="margin-top:2rem;"><input type="hidden" name="token" value="${token}"><button type="button" id="run-now-btn" class="run-now-btn">Run File Keeper Now</button></form>
+    <form id="run-now-form" style="margin-top:2rem;"><input type="hidden" name="token" value="${token}"><button type="submit" class="run-now-btn">Run File Keeper Now</button></form>
     <h2>Active Links (${totalLinks})</h2><ul>${totalLinks > 0 ? linkListHTML : '<p>No links yet.</p>'}</ul></div>
     <script>
         const notif = document.getElementById('notification');
-        const urlParams = new URLSearchParams(window.location.search);
+        const runNowForm = document.getElementById('run-now-form');
         let pollingInterval;
-        document.getElementById('run-now-btn').addEventListener('click', (e) => {
+
+        runNowForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
             const totalLinks = ${totalLinks};
-            if (confirm(\`Are you sure you want to run the keeper job for \${totalLinks} links?\`)) {
-                document.getElementById('run-now-form').submit();
+            if (!confirm(\`Are you sure you want to run the keeper job for \${totalLinks} links?\`)) {
+                return;
             }
-        });
-        function checkJobStatus() {
-            fetch('/job-status').then(res => res.json()).then(data => {
-                if (data.status === 'running') {
-                    notif.className = 'notification info'; notif.textContent = 'Job is running in the background...'; notif.style.display = 'block';
-                } else if (data.status === 'finished') {
-                    notif.className = 'notification success'; notif.textContent = 'Job finished successfully!'; notif.style.display = 'block';
-                    clearInterval(pollingInterval);
-                    setTimeout(() => { notif.style.display = 'none'; }, 5000);
-                    window.history.replaceState({}, document.title, window.location.pathname + "?token=${token}");
-                }
-            }).catch(() => { clearInterval(pollingInterval); });
-        }
-        if (urlParams.get('status') === 'running') {
+
+            // Show "Running" notification immediately
+            notif.className = 'notification info';
+            notif.textContent = 'Job has been started in the background...';
+            notif.style.display = 'block';
+
+            // Send the request to the server without waiting
+            try {
+                await fetch('/run-now', {
+                    method: 'POST',
+                    body: new FormData(runNowForm)
+                });
+            } catch (error) {
+                console.error('Failed to start the job:', error);
+                notif.className = 'notification';
+                notif.style.background = 'red';
+                notif.textContent = 'Failed to start job!';
+                return; // Stop if we can't even start the job
+            }
+
+            // Start polling for completion status
             pollingInterval = setInterval(checkJobStatus, 5000);
-            checkJobStatus();
+        });
+
+        function checkJobStatus() {
+            fetch('/job-status')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'finished') {
+                        notif.className = 'notification success';
+                        notif.textContent = 'Job finished successfully!';
+                        clearInterval(pollingInterval);
+                        setTimeout(() => { notif.style.display = 'none'; }, 5000);
+                    } else if (data.status !== 'running') {
+                        // If status is something else (like idle), stop polling
+                        clearInterval(pollingInterval);
+                    }
+                })
+                .catch(() => {
+                    console.error('Polling failed. Stopping.');
+                    clearInterval(pollingInterval);
+                });
         }
     </script>
     </body></html>`;
