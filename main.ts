@@ -1,11 +1,11 @@
-// main.ts (Final Version with AJAX Notification)
+// main.ts (Final Version with GET Request and AbortController)
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "fallback-admin-token";
 
-console.log("Streamtape Manager (AJAX Version) is starting...");
+console.log("Streamtape Manager (Advanced GET Ping) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -63,7 +63,7 @@ async function handler(req: Request): Promise<Response> {
     if (pathname === "/run-now" && method === "POST") {
          if ((await req.formData()).get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
          console.log("Manual trigger: Starting keeper job.");
-         keepFilesActive(); // This runs in the background, we don't wait for it.
+         keepFilesActive();
          return new Response("Job started successfully.", { status: 200 });
     }
   
@@ -86,12 +86,27 @@ async function keepFilesActive() {
     
     if (urls.length === 0) { console.log("No URLs to process."); } 
     else {
-        console.log(`Processing ${urls.length} URLs.`);
+        console.log(`Processing ${urls.length} URLs with GET requests.`);
         for (const url of urls) {
+            const controller = new AbortController();
+            const signal = controller.signal;
+            
             try {
-                const res = await fetch(url, { method: 'HEAD' });
+                // Use GET request but abort after receiving headers
+                const res = await fetch(url, { signal });
+                
+                // Once we get a response (even just headers), it's a success.
+                // We don't need the body, so we abort the download.
+                controller.abort();
+                
                 console.log(`Pinged ${url} - Status: ${res.status}`);
-            } catch (e) { console.error(`Failed to ping ${url}: ${e.message}`); }
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    console.log(`Successfully pinged and aborted download for ${url}`);
+                } else {
+                    console.error(`Failed to ping ${url}: ${e.message}`);
+                }
+            }
             await new Promise(r => setTimeout(r, 1000));
         }
     }
@@ -144,55 +159,30 @@ function getAdminPageHTML(links: string[], token: string): string {
         const notif = document.getElementById('notification');
         const runNowForm = document.getElementById('run-now-form');
         let pollingInterval;
-
         runNowForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const totalLinks = ${totalLinks};
-            if (!confirm(\`Are you sure you want to run the keeper job for \${totalLinks} links?\`)) {
-                return;
-            }
-
-            // Show "Running" notification immediately
+            if (!confirm(\`Are you sure you want to run the keeper job for \${${totalLinks}} links?\`)) return;
             notif.className = 'notification info';
-            notif.textContent = 'Job has been started in the background...';
+            notif.textContent = 'Job has been started... Please wait.';
             notif.style.display = 'block';
-
-            // Send the request to the server without waiting
             try {
-                await fetch('/run-now', {
-                    method: 'POST',
-                    body: new FormData(runNowForm)
-                });
+                await fetch('/run-now', { method: 'POST', body: new FormData(runNowForm) });
             } catch (error) {
-                console.error('Failed to start the job:', error);
-                notif.className = 'notification';
-                notif.style.background = 'red';
-                notif.textContent = 'Failed to start job!';
-                return; // Stop if we can't even start the job
+                notif.className = 'notification'; notif.style.background = 'red'; notif.textContent = 'Failed to start job!'; return;
             }
-
-            // Start polling for completion status
             pollingInterval = setInterval(checkJobStatus, 5000);
         });
-
         function checkJobStatus() {
-            fetch('/job-status')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'finished') {
-                        notif.className = 'notification success';
-                        notif.textContent = 'Job finished successfully!';
-                        clearInterval(pollingInterval);
-                        setTimeout(() => { notif.style.display = 'none'; }, 5000);
-                    } else if (data.status !== 'running') {
-                        // If status is something else (like idle), stop polling
-                        clearInterval(pollingInterval);
-                    }
-                })
-                .catch(() => {
-                    console.error('Polling failed. Stopping.');
+            fetch('/job-status').then(res => res.json()).then(data => {
+                if (data.status === 'finished') {
+                    notif.className = 'notification success';
+                    notif.textContent = 'Job finished successfully!';
                     clearInterval(pollingInterval);
-                });
+                    setTimeout(() => { notif.style.display = 'none'; }, 5000);
+                } else if (data.status !== 'running') {
+                    clearInterval(pollingInterval);
+                }
+            }).catch(() => { clearInterval(pollingInterval); });
         }
     </script>
     </body></html>`;
