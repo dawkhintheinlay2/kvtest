@@ -1,11 +1,11 @@
-// main.ts
+// main.ts (Final Refined Version with Bulk Add)
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const kv = await Deno.openKv();
 const ADMIN_TOKEN = Deno.env.get("ADMIN_TOKEN") || "fallback-admin-token";
 
-console.log("Streamtape Manager (Final UI/UX) is starting...");
+console.log("Streamtape Manager (Final Version) is starting...");
 
 async function handler(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -27,12 +27,27 @@ async function handler(req: Request): Promise<Response> {
         return new Response(getAdminPageHTML(links, ADMIN_TOKEN), { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
+    // Handles single link addition
     if (pathname === "/add" && method === "POST") {
         const formData = await req.formData();
         if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
         const newUrl = formData.get("url") as string;
         if (newUrl && newUrl.includes("streamtape.com")) {
-            await kv.set(["streamtape_urls", newUrl], newUrl);
+            await kv.set(["streamtape_urls", newUrl.trim()], newUrl.trim());
+        }
+        return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
+    }
+    
+    // Handles multiple links addition
+    if (pathname === "/bulk-add" && method === "POST") {
+        const formData = await req.formData();
+        if (formData.get("token") !== ADMIN_TOKEN) return new Response("Forbidden", { status: 403 });
+        const urlsText = formData.get("urls") as string;
+        if (urlsText) {
+            const urls = urlsText.split('\n').map(u => u.trim()).filter(u => u.includes("streamtape.com"));
+            for (const u of urls) {
+                if (u) await kv.set(["streamtape_urls", u], u);
+            }
         }
         return Response.redirect(`${url.origin}/admin?token=${ADMIN_TOKEN}`, 302);
     }
@@ -97,15 +112,7 @@ function getLoginPageHTML(): string {
 function getAdminPageHTML(links: string[], token: string): string {
     const totalLinks = links.length;
     let linkListHTML = links.map(link => `
-    <li class="link-item">
-      <span class="link-text" title="${link}">${link}</span>
-      <form method="POST" action="/delete" class="delete-form">
-        <input type="hidden" name="token" value="${token}">
-        <input type="hidden" name="url" value="${link}">
-        <button type="submit" class="delete-btn" title="Delete">&times;</button>
-      </form>
-    </li>`).join('');
-
+    <li class="link-item"><span class="link-text" title="${link}">${link}</span><form method="POST" action="/delete" class="delete-form"><input type="hidden" name="token" value="${token}"><input type="hidden" name="url" value="${link}"><button type="submit" class="delete-btn" title="Delete">&times;</button></form></li>`).join('');
     return `
     <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Streamtape Link Manager</title>
     <style>
@@ -115,12 +122,14 @@ function getAdminPageHTML(links: string[], token: string): string {
         h1,h2{color:var(--accent);border-bottom:2px solid var(--accent);padding-bottom:0.5rem;}
         form{margin-bottom:1.5rem;}
         .form-group{display:flex;gap:1rem;}
-        input[type="text"]{flex-grow:1;padding:0.8rem;background:var(--bg);border:1px solid var(--primary);color:var(--text);border-radius:5px;font-size:1rem;}
-        button{padding:0.8rem 1.5rem;background:var(--accent);color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;}
+        input[type="text"], textarea {width:100%;padding:0.8rem;background:var(--bg);border:1px solid var(--primary);color:var(--text);border-radius:5px;font-size:1rem;font-family:inherit;}
+        textarea { resize: vertical; min-height: 120px; }
+        button{padding:0.8rem 1.5rem;background:var(--accent);color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;transition:opacity 0.2s;}
+        button:hover{opacity:0.9;}
         .run-now-btn{background: var(--info);}
-        ul{list-style:none;padding:0;}
+        ul{list-style:none;padding:0;max-height:400px;overflow-y:auto;border:1px solid var(--primary);border-radius:5px;padding:0.5rem;}
         .link-item{display:flex;justify-content:space-between;align-items:center;background:var(--primary);padding:0.8rem 1.2rem;border-radius:5px;margin-bottom:0.8rem;}
-        .link-text {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-grow:1;margin-right:1rem;}
+        .link-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-grow:1;margin-right:1rem;}
         .delete-form{margin:0;}.delete-btn{background:none;color:#ffc1cc;font-size:1.5rem;padding:0 0.5rem;line-height:1;}
         .notification{padding:1rem;border-radius:5px;margin-bottom:1.5rem;text-align:center;display:none;font-weight:bold;}
         .notification.info{background:var(--info);color:white;}
@@ -129,8 +138,9 @@ function getAdminPageHTML(links: string[], token: string): string {
     </head><body><div class="container">
     <div id="notification" class="notification"></div>
     <h1>Streamtape Link Manager</h1>
-    <form method="POST" action="/add"><input type="hidden" name="token" value="${token}"><div class="form-group"><input type="text" name="url" placeholder="Enter Streamtape URL..." required><button type="submit">Add Link</button></div></form>
-    <form method="POST" action="/run-now" id="run-now-form"><input type="hidden" name="token" value="${token}"><button type="button" id="run-now-btn" class="run-now-btn">Run File Keeper Now</button></form>
+    <form method="POST" action="/add"><input type="hidden" name="token" value="${token}"><div class="form-group"><input type="text" name="url" placeholder="Enter a single Streamtape URL..." required><button type="submit">Add Link</button></div></form>
+    <form method="POST" action="/bulk-add"><input type="hidden" name="token" value="${token}"><textarea name="urls" placeholder="... or enter multiple links, one per line."></textarea><button type="submit" style="margin-top:1rem;width:100%;">Add Multiple Links</button></form>
+    <form method="POST" action="/run-now" id="run-now-form" style="margin-top:2rem;"><input type="hidden" name="token" value="${token}"><button type="button" id="run-now-btn" class="run-now-btn">Run File Keeper Now</button></form>
     <h2>Active Links (${totalLinks})</h2><ul>${totalLinks > 0 ? linkListHTML : '<p>No links yet.</p>'}</ul></div>
     <script>
         const notif = document.getElementById('notification');
@@ -138,8 +148,7 @@ function getAdminPageHTML(links: string[], token: string): string {
         let pollingInterval;
         document.getElementById('run-now-btn').addEventListener('click', (e) => {
             const totalLinks = ${totalLinks};
-            const confirmationMessage = \`Are you sure you want to run the keeper job for \${totalLinks} links? This might take a while if you have many links.\`;
-            if (confirm(confirmationMessage)) {
+            if (confirm(\`Are you sure you want to run the keeper job for \${totalLinks} links?\`)) {
                 document.getElementById('run-now-form').submit();
             }
         });
